@@ -24,9 +24,22 @@ class SnowflakeAdapter(BaseConnector):
         params: dict = {
             "account": cfg.account,
             "user": cfg.username,
-            "password": cfg.password,
             "login_timeout": cfg.connect_timeout,
         }
+        if cfg.password:
+            params["password"] = cfg.password
+        else:
+            # Fall back to platform RSA private key when no password stored
+            from app.core.config import settings as _cfg
+            if _cfg.sf_platform_private_key_path:
+                from cryptography.hazmat.primitives.serialization import (
+                    load_pem_private_key, Encoding, PrivateFormat, NoEncryption,
+                )
+                with open(_cfg.sf_platform_private_key_path, "rb") as _f:
+                    _pk = load_pem_private_key(_f.read(), password=None)
+                params["private_key"] = _pk.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+            else:
+                params["password"] = ""
         if cfg.warehouse:
             params["warehouse"] = cfg.warehouse
         if cfg.role:

@@ -163,12 +163,23 @@ def _decrypt_password(conn: SnowflakeConnection) -> str:
 
 def _open_connector(conn: SnowflakeConnection):
     import snowflake.connector
-    kwargs = dict(
+    kwargs: dict = dict(
         account=conn.account,
         user=conn.sf_user,
-        password=_decrypt_password(conn),
         warehouse=conn.warehouse,
     )
+    plain_pw = _decrypt_password(conn) if conn.password else ""
+    if plain_pw:
+        kwargs["password"] = plain_pw
+    else:
+        from app.core.config import settings as _sf_cfg
+        if _sf_cfg.sf_platform_private_key_path:
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+            with open(_sf_cfg.sf_platform_private_key_path, "rb") as _kf:
+                _pk = load_pem_private_key(_kf.read(), password=None)
+            kwargs["private_key"] = _pk.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+        else:
+            kwargs["password"] = ""
     if conn.role:
         kwargs["role"] = conn.role
     if conn.default_database:

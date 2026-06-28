@@ -849,8 +849,19 @@ async def get_asset_columns(
         if not schema_safe or not table_safe:
             return {**base, "columns": [], "error": "Invalid schema or table name"}
 
-        kwargs: dict = dict(account=conn.account, user=conn.sf_user,
-                            password=_decrypt_password(conn), warehouse=conn.warehouse)
+        _pw = _decrypt_password(conn) if conn.password else ""
+        kwargs: dict = dict(account=conn.account, user=conn.sf_user, warehouse=conn.warehouse)
+        if _pw:
+            kwargs["password"] = _pw
+        else:
+            from app.core.config import settings as _sf_cfg
+            if _sf_cfg.sf_platform_private_key_path:
+                from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+                with open(_sf_cfg.sf_platform_private_key_path, "rb") as _kf:
+                    _pk = load_pem_private_key(_kf.read(), password=None)
+                kwargs["private_key"] = _pk.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+            else:
+                kwargs["password"] = ""
         if conn.role:
             kwargs["role"] = conn.role
         database = asset.sf_database_name or conn.default_database
