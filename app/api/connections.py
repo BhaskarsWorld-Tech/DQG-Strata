@@ -226,8 +226,6 @@ def _test_snowflake_sync(payload) -> dict:
         missing.append("Account")
     if not payload.sf_user:
         missing.append("Username")
-    if not payload.password:
-        missing.append("Password")
 
     if missing:
         steps.append({"label": "Field validation", "status": "fail", "detail": f"Missing: {', '.join(missing)}"})
@@ -237,7 +235,8 @@ def _test_snowflake_sync(payload) -> dict:
             "error_message": f"Required fields are missing: {', '.join(missing)}",
             "suggestion": "Fill in all required Snowflake connection fields."
         }
-    steps.append({"label": "Field validation", "status": "ok", "detail": "All required fields present"})
+    auth_method = "RSA key" if not getattr(payload, "password", "") else "password"
+    steps.append({"label": "Field validation", "status": "ok", "detail": f"All required fields present (auth: {auth_method})"})
 
     # Step 2: Account format
     account = payload.account.replace(".snowflakecomputing.com", "")
@@ -253,12 +252,21 @@ def _test_snowflake_sync(payload) -> dict:
 
     # Step 3: Connect
     try:
+        from app.core.config import settings as _cfg
         kwargs = dict(
             account=account,
             user=payload.sf_user,
-            password=payload.password,
-            warehouse=payload.warehouse or "DQ_EXECUTION_WH",
+            warehouse=payload.warehouse or "TRANSFORMING",
         )
+        if getattr(payload, "password", "") :
+            kwargs["password"] = payload.password
+        elif _cfg.sf_platform_private_key_path:
+            from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+            with open(_cfg.sf_platform_private_key_path, "rb") as _f:
+                _pk = load_pem_private_key(_f.read(), password=None)
+            kwargs["private_key"] = _pk.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+        else:
+            kwargs["password"] = ""
         if payload.role:
             kwargs["role"] = payload.role
         if payload.default_database:
@@ -618,16 +626,13 @@ async def test_connection(connection_id: str, db: AsyncSession = Depends(get_db)
         db_type = conn.database_type or "snowflake"
 
         if db_type == "snowflake":
-            if not conn.password:
-                return {"success": False, "status": "error", "steps": [{"label": "Password", "status": "fail", "detail": "No password saved"}]}
-
             class _Payload:
                 pass
 
             p = _Payload()
             p.account = conn.account
             p.sf_user = conn.sf_user
-            p.password = _decrypt_password(conn)
+            p.password = _decrypt_password(conn) if conn.password else ""
             p.warehouse = conn.warehouse
             p.role = conn.role
             p.default_database = conn.default_database
