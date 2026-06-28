@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     sf_platform_account: str = ""
     sf_platform_user: str = ""
     sf_platform_password: str = ""
+    sf_platform_private_key_path: str = ""  # path to unencrypted PEM private key for RSA auth
     sf_platform_warehouse: str = "DQ_EXECUTION_WH"
     sf_platform_role: str = "DQ_PLATFORM_ROLE"
     # Platform app database and schema (where platform tables live)

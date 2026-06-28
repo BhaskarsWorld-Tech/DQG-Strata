@@ -54,11 +54,19 @@ class Base(DeclarativeBase):
     pass
 
 
+def _load_private_key(pem_path: str):
+    """Load an unencrypted RSA private key from a PEM file and return DER bytes for Snowflake."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key, Encoding, PrivateFormat, NoEncryption
+    with open(pem_path, "rb") as f:
+        private_key = load_pem_private_key(f.read(), password=None)
+    return private_key.private_bytes(Encoding.DER, PrivateFormat.PKCS8, NoEncryption())
+
+
 def _build_snowflake_url() -> SnowflakeURL:
     return SnowflakeURL(
         account=settings.sf_platform_account,
         user=settings.sf_platform_user,
-        password=settings.sf_platform_password,
+        password=settings.sf_platform_password if not settings.sf_platform_private_key_path else "",
         database=settings.snowflake_app_database,
         schema=settings.snowflake_app_schema,
         warehouse=settings.sf_platform_warehouse,
@@ -66,15 +74,21 @@ def _build_snowflake_url() -> SnowflakeURL:
     )
 
 
-engine = create_engine(
-    _build_snowflake_url(),
-    echo=settings.debug,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_timeout=30,
-    pool_recycle=3600,
-    pool_pre_ping=True,
-)
+def _build_engine_kwargs() -> dict:
+    kwargs: dict = dict(
+        echo=settings.debug,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_timeout=30,
+        pool_recycle=3600,
+        pool_pre_ping=True,
+    )
+    if settings.sf_platform_private_key_path:
+        kwargs["connect_args"] = {"private_key": _load_private_key(settings.sf_platform_private_key_path)}
+    return kwargs
+
+
+engine = create_engine(_build_snowflake_url(), **_build_engine_kwargs())
 
 _SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 

@@ -81,6 +81,26 @@ class PasswordChange(BaseModel):
 @router.post("/auth/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, payload: LoginRequest, db: AsyncSession = Depends(get_db)):
+    from app.core.config import settings as _settings
+    if not _settings.auth_required:
+        # Dev/local mode: skip DB lookup, issue token for any credentials
+        dev_user_id = str(uuid.uuid4())
+        token_data = {
+            "sub": dev_user_id,
+            "email": payload.email.lower(),
+            "role": "admin",
+            "full_name": payload.email.split("@")[0],
+            "user_id": dev_user_id,
+            "domain_id": None,
+        }
+        access_token = create_access_token(token_data, expires_delta=timedelta(minutes=480))
+        refresh_token = create_refresh_token({"sub": dev_user_id, "email": payload.email.lower()})
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user={"user_id": dev_user_id, "email": payload.email.lower(), "full_name": token_data["full_name"], "role": token_data["role"]},
+        )
+
     result = await db.execute(select(User).where(User.email == payload.email.lower()))
     user = result.scalar_one_or_none()
     if not user or not verify_password(payload.password, user.hashed_password):
