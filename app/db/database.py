@@ -253,8 +253,11 @@ def create_tables():
 
     with engine.connect() as conn:
         # ── Ensure database and schema exist ──────────────────────────────────
-        conn.execute(text(f'CREATE DATABASE IF NOT EXISTS "{db_name}"'))
-        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{db_name}"."{schema_name}"'))
+        # Skip CREATE DATABASE/SCHEMA if the role lacks that privilege (they may already exist)
+        _run_ddl(conn, [
+            f'CREATE DATABASE IF NOT EXISTS "{db_name}"',
+            f'CREATE SCHEMA IF NOT EXISTS "{db_name}"."{schema_name}"',
+        ])
 
         # ── Rename old table if still using the legacy name ───────────────────
         # data_assets was renamed to assets in the Asset Registry redesign.
